@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task App</title>
+  <link rel="stylesheet" href="index.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <div>
+    <canvas id="viz"></canvas>
+  </div>
+
+  <script>
+    const data = {
+      voteList: [],
+      candidate: {
+        title: '',
+        content: '',
+        category: '',
+        status: '',
+      },
+    };
+
+    const fetchData = async () => {
+      try {
+        const response = await fetch('http://localhost:8080/notes');
+        data.voteList = await response.json();
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      }
+    };
+
+    const displayVotes = () => {
+      const root = document.getElementById('root');
+      root.innerHTML = `
+        <h2>Lista cu taskuri</h2>
+        ${data.voteList.map(e => displayTask(e)).join('')}
+        <div>
+          <input type="text" id="titleInput" placeholder="Nume Task" value="${data.candidate.title}" />
+          <input type="text" id="contentInput" placeholder="Content Task" value="${data.candidate.content}" />
+          <input type="text" id="categoryInput" placeholder="Category Task" value="${data.candidate.category}" />
+          <select id="statusInput">
+            <option value="în curs" ${data.candidate.status === 'în curs' ? 'selected' : ''}>în curs</option>
+            <option value="neînceput" ${data.candidate.status === 'neînceput' ? 'selected' : ''}>neînceput</option>
+            <option value="finalizat" ${data.candidate.status === 'finalizat' ? 'selected' : ''}>finalizat</option>
+          </select>
+          <input type="button" value="add" onclick="addItem()" />
+        </div>
+      `;
+    };
+
+    const displayTask = (task) => `
+  <div class="positive">
+    Pentru ${task.category} - Status: ${task.status || 'N/A'}
+    <input type='button' value='delete' onclick="handleButtonClick('${task.id}', 'delete')" />
+    <input type='button' value='edit' id="edit-btn-${task.id}" onclick="handleButtonClick('${task.id}', 'edit')" />
+    <div id="edit-form-${task.id}" style="display: none;">
+      <input type="text" id="edit-title-${task.id}" placeholder="New Title" />
+      <input type="text" id="edit-content-${task.id}" placeholder="New Content" />
+      <input type="text" id="edit-category-${task.id}" placeholder="New Category" />
+      <select id="edit-status-${task.id}">
+        <option value="în curs">în curs</option>
+        <option value="neînceput">neînceput</option>
+        <option value="finalizat">finalizat</option>
+      </select>
+      <input type="button" value="save" id="save-btn-${task.id}" onclick="handleButtonClick('${task.id}', 'save')" />
+      <!-- Add the new 'updateStatus' button here -->
+      <input type='button' value='updateStatus' id="update-status-btn-${task.id}" onclick="handleButtonClick('${task.id}', 'updateStatus')" />
+    </div>
+  </div>
+`;
+
+  
+
+
+    const updateVotesChart = () => {
+  const viz = document.getElementById('viz');
+  const ctx = viz.getContext('2d');
+
+  // Distrugem graficul existent (dacă există)
+  if (window.myChart) {
+    window.myChart.destroy();
+  }
+
+  // Cream un nou grafic
+  window.myChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.voteList.map(e => e.category),
+      datasets: [{
+        label: 'Status Task-uri (1 - finalizat, 0.5 - in curs, 0 - neînceput)',
+        data: data.voteList.map(e => getStatusValue(e.status)),
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      scales: {
+        y: {
+          beginAtZero: true,
+          max: 1,
+        },
+      },
+    },
+  });
+};
+
+
+    const getStatusValue = (status) => {
+      const statusToValue = {
+        'finalizat': 1,
+        'în curs': 0.5,
+        'neînceput': 0,
+      };
+      return statusToValue[status] || 0;
+    };
+
+    const updateStatus = async (id) => {
+  try {
+    const newStatus = document.getElementById(`edit-status-${id}`).value;
+
+    await fetch(`http://localhost:8080/notes/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ status: newStatus }),
+    });
+
+    await fetchData();
+    displayVotes();
+    updateVotesChart();
+  } catch (error) {
+    console.error('Error updating status:', error);
+  }
+};
+
+const handleButtonClick = async (id, action) => {
+  try {
+    if (action === 'delete') {
+      await fetch(`http://localhost:8080/notes/${id}`, { method: 'DELETE' });
+    } else if (action === 'save') {
+      const newTitle = document.getElementById(`edit-title-${id}`).value;
+      const newContent = document.getElementById(`edit-content-${id}`).value;
+      const newCategory = document.getElementById(`edit-category-${id}`).value;
+      const newStatus = document.getElementById(`edit-status-${id}`).value;
+
+      await fetch(`http://localhost:8080/notes/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: newTitle, content: newContent, category: newCategory, status: newStatus }),
+      });
+    } else if (action === 'edit') {
+      document.getElementById(`edit-form-${id}`).style.display = 'block';
+      const task = data.voteList.find(item => item.id === id);
+      document.getElementById(`edit-title-${id}`).value = task.title;
+      document.getElementById(`edit-content-${id}`).value = task.content;
+      document.getElementById(`edit-category-${id}`).value = task.category;
+      document.getElementById(`edit-status-${id}`).value = task.status;
+    } else if (action === 'updateStatus') {
+      // This part is new - handle updating status
+      const newStatus = document.getElementById(`edit-status-${id}`).value;
+      await updateStatus(id, newStatus);
+    }
+
+    await fetchData();
+    displayVotes();
+    updateVotesChart();
+  } catch (error) {
+    console.error(`Error ${action}ing item:`, error);
+  }
+};
+
+
+    const saveItem = async (id) => {
+      await handleButtonClick(id, 'save');
+    };
+
+    const addItem = async () => {
+      try {
+        // Preia valorile direct din input-uri
+        data.candidate.title = document.getElementById('titleInput').value;
+        data.candidate.content = document.getElementById('contentInput').value;
+        data.candidate.category = document.getElementById('categoryInput').value;
+        data.candidate.status = document.getElementById('statusInput').value;
+
+        // Request POST către server
+        const response = await fetch('http://localhost:8080/notes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(data.candidate),
+        });
+
+        if (response.ok) {
+          console.log('Task adăugat cu succes!');
+        } else {
+          console.error('Eroare la adăugarea task-ului.');
+        }
+
+        // Resetează valorile candidatei
+        data.candidate = { title: '', content: '', category: '', status: '' };
+
+        // Reafișează voturile și actualizează diagrama
+        await fetchData();
+        displayVotes();
+        updateVotesChart();
+      } catch (error) {
+        console.error('Error adding item:', error);
+      }
+    };
+
+    document.addEventListener("DOMContentLoaded", async () => {
+  await fetchData();
+  displayVotes();
+  updateVotesChart();
+
+  // Atribuie evenimentele de editare și salvare
+  data.voteList.forEach((task) => {
+    const editBtn = document.getElementById(`edit-btn-${task.id}`);
+    const saveBtn = document.getElementById(`save-btn-${task.id}`);
+
+    editBtn.addEventListener('click', () => handleButtonClick(task.id, 'edit'));
+    saveBtn.addEventListener('click', () => saveItem(task.id));
+  });
+});
+
+  </script>
+</body>
+
+</html>
